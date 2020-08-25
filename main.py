@@ -23,7 +23,7 @@
 import nni
 import lightgbm as lgb
 import pandas as pd
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, accuracy_score
 from sklearn.model_selection import train_test_split
 from scipy.io import loadmat
 
@@ -38,8 +38,9 @@ logger = logging.getLogger("auto-gbdt")
 def get_default_parameters():
     params = {
         'boosting_type': 'gbdt',
-        'objective': 'regression',
-        'metric': {'l2', 'auc'},
+        'objective': 'multiclass',
+        'num_class': 4,
+        'metric': {'multi_error', 'multi_logloss'},
         'num_leaves': 31,
         'learning_rate': 0.05,
         'feature_fraction': 0.9,
@@ -52,22 +53,17 @@ def get_default_parameters():
 
 def load_data():
     # 加载数据
-    mat = loadmat(
-        "/Users/liuziyi/Documents/Lifesense/data/spo2/raw/spo2_feature.mat")["f"]
+    mat = loadmat("/data/data/spo2/raw/spo2_feature.mat")["f"]
     X = mat[:, :-1]
     y = mat[:, -1]
 
-    train_idx, test_idx = train_test_split(y, test_size=0.2, stratify=y)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, stratify=y)
 
-    X_train = X[train_idx, :]
-    X_test = X[test_idx, :]
-    y_train = y[train_idx]
-    y_test = y[test_idx]
-
-    split_num = len(X_train) * 0.8
-    X_eval = X_train[:split_num]
-    X_train = X_train[split_num:]
-    y_eval = y_train[:split_num]
+    split_num = int(len(X_train) * 0.8)
+    X_eval = X_train[split_num:, :]
+    X_train = X_train[:split_num, :]
+    y_eval = y_train[split_num:]
     y_train = y_train[:split_num]
 
     lgb_train = lgb.Dataset(X_train, y_train)
@@ -77,23 +73,20 @@ def load_data():
 
 
 def run(lgb_train, lgb_eval, params, X_test, y_test):
-    print("start training.")
-
     params["num_leaves"] = int(params["num_leaves"])
 
     gbm = lgb.train(params, lgb_train, num_boost_round=20,
                     valid_sets=lgb_eval, early_stopping_rounds=5)
 
-    print("start predicting.")
-
     # predict
     y_pred = gbm.predict(X_test, num_iteration=gbm.best_iteration)
+    y_pred = [list(x).index(max(x)) for x in y_pred]
 
     # eval
-    rmse = mean_squared_error(y_test, y_pred) ** 0.5
-    print("The rmse of prediction is: ", rmse)
+    acc = accuracy_score(y_test, y_pred)
+    print("The accuracy of prediction is: ", acc)
 
-    nni.report_final_result(rmse)
+    nni.report_final_result(acc)
 
 
 if __name__ == "__main__":
@@ -101,7 +94,7 @@ if __name__ == "__main__":
     lgb_train, lgb_eval, X_test, y_test = load_data()
 
     try:
-        RECEIVED_PARAMS = nni.get_next_parameters()
+        RECEIVED_PARAMS = nni.get_next_parameter()
         logger.debug(RECEIVED_PARAMS)
         PARAMS = get_default_parameters()
         PARAMS.update(RECEIVED_PARAMS)
