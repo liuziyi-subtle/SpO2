@@ -2,7 +2,11 @@
   "num_leaves": {
     "_type": "randint",
     "_value": [
+      5,
+      10,
+      15,
       20,
+      25,
       31
     ]
   },
